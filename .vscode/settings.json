@@ -1,0 +1,10 @@
+{
+  "svelte.enable-ts-plugin": true,
+
+  // Source - https://stackoverflow.com/a/74465212
+  // Posted by isaactfa, modified by community. See post 'Timeline' for change history
+  // Retrieved 2026-07-19, License - CC BY-SA 4.0
+  "rust-analyzer.linkedProjects": [
+      "src-tauri/Cargo.toml",
+  ]
+}
