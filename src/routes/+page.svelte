@@ -133,7 +133,7 @@
   background-color: #2f2f2f;
 }
 
-.board_item_input{
+.board_item_input {
   width: 50px;
   height: 50px;
   color: #f6f6f6;

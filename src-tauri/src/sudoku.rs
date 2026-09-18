@@ -6,6 +6,8 @@ use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
 use rand::{random_range, rng, seq::SliceRandom};
 
+//use crate::sudoku;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Sudoku(Vec<u8>);
 
@@ -31,53 +33,28 @@ impl Sudoku
         &self.0
     }
 
+    fn insert(&mut self, index: usize, value: u8) -> (){
+        self.0[index] = value;
+    }
+
     pub fn gen_solved_new_random() -> Sudoku{
+        let mut sudoku = Sudoku::new_zeroed();
         let mut first_row: Vec<u8> = Self::VALUES.to_vec();
         first_row.shuffle(&mut rng());
-        
-        //Random permutation of 1..=9
-        let first_three_values_of_first_row: Vec<u8> = first_row[0..3].to_vec();
-        
-        //First three vals share a box with first three vals of the first column => these can't appear again in the box
-        //Removing with filter
-        let nums_not_in_first_three_of_first_row: Vec<u8> =
-            Self::VALUES.iter()
-            .filter(|value| !first_three_values_of_first_row.contains(value))
-            .map(|value| *value)
-            .collect();
 
-        //Using first two of the filtered values as the two values which will be in shared box with the first row
-        let second_value_of_first_column: u8 = nums_not_in_first_three_of_first_row[0];
-        let third_value_of_first_column: u8 = nums_not_in_first_three_of_first_row[1];
+        for (index, value) in first_row.iter().enumerate(){
+            sudoku.insert(index, *value);
+        }
 
-        //Collect together the remaining 6 values of the column which are independent of the first row.
-        //Shuffling, otherwise values 2 and 3 of the first row would always be at the end of the first column.
-        let mut rest_of_first_column: Vec<u8> =
-            vec![
-                nums_not_in_first_three_of_first_row[2..].to_vec(),
-                first_three_values_of_first_row[1..].to_vec()
-            ].concat();
-        rest_of_first_column.shuffle(&mut rng());
-
-        //Constructing full first column.
-        let first_column: Vec<u8> =
-            [vec![first_three_values_of_first_row[0], second_value_of_first_column, third_value_of_first_column],
-                rest_of_first_column.to_vec()
-            ].concat().to_vec();
-
-        //Adding first element as this is shared between the first column and row
-
-        let mut sudoku: Sudoku = (0..(Self::DIMENSION*Self::DIMENSION))
-        .into_iter()
-        .map(|i|
-            if i < Self::DIMENSION { first_row[i as usize] }
-            else if i%Self::DIMENSION == 0 { first_column[(i/Self::DIMENSION) as usize] }
-            else { 0 }
-        )
-        .collect();
+        for i in 1..9{
+            let index = 9*i;
+            let mut possible_values: Vec<u8> = sudoku.possible_values(index);
+            possible_values.shuffle(&mut rng());
+            let value = possible_values[0];
+            sudoku.insert(index, value);
+        }
 
         sudoku.solve();
-
         sudoku
 
     }
@@ -87,7 +64,7 @@ impl Sudoku
 
         match difficulty{
             "easy" => amount_to_remove_from_grid = 2,
-            "medium" => amount_to_remove_from_grid = random_range(46..50),
+            "medium" => amount_to_remove_from_grid = random_range(40..50),
             "hard" => amount_to_remove_from_grid = random_range(51..60),
             _ => panic!("Unknown difficulty: {}", difficulty)
         }
@@ -104,12 +81,11 @@ impl Sudoku
             |(index, square)|
             if indices_to_remove.contains(&(index as u8)){
                 *square = 0;
-                square
+                square.to_owned()
             } else {
-                square
+                square.to_owned()
             }
         )
-        .map(|square| square.to_owned())
         .collect()
 
     }
@@ -124,16 +100,8 @@ impl Sudoku
         }
     }
 
-    pub fn get_mut(&mut self, x: u8, y: u8) -> Option<&mut u8>{
-
-        if (x > Self::DIMENSION) || (y > Self::DIMENSION) {
-            None
-        } else {
-            let square_index = (y*Self::DIMENSION) + x;
-            self.0.get_mut(square_index as usize)
-        }
-    }
-
+    //Returns a list of the 9 columns making up the sudoku.
+    //top to bottom
     fn columns(&self) -> Vec<Vec<&u8>>{
         let dim: u8 = Self::DIMENSION;
         let mut res: Vec<Vec<&u8>> = Vec::new();
@@ -157,21 +125,23 @@ impl Sudoku
         res
     }
 
+    //Returns a list of the 9 rows making up the sudoku.
+    //top to bottom
     fn rows(&self) -> Vec<Vec<&u8>>{
         let mut res: Vec<Vec<&u8>> = Vec::new();
 
-        let squares = &self.0;
-        let dim = Self::DIMENSION;
+        let squares: &Vec<u8> = &self.0;
+        let dim: u8 = Self::DIMENSION;
 
-        let mut x_count = 0;
-        let mut y_count = 0;
+        let mut x_count: u8 = 0;
+        let mut y_count: u8 = 0;
 
         while y_count < dim{
             let mut temp: Vec<&u8> = Vec::new();
 
             while x_count < dim{
-                let index = (y_count*dim) + x_count;
-                let square = squares.get(index as usize).unwrap();
+                let index: u8 = (y_count*dim) + x_count;
+                let square: &u8 = squares.get(index as usize).unwrap();
                 temp.push(square);
                 x_count += 1;
             }
@@ -183,6 +153,8 @@ impl Sudoku
         res
     }
     
+    //Returns a list of the 9 boxes making up the sudoku.
+    //left to right, top to bottom
     fn boxes(&self) -> Vec<Vec<&u8>>{
         let mut res: Vec<Vec<&u8>> = Vec::new();
 
@@ -239,8 +211,8 @@ impl Sudoku
 
         for inner_y in 0..Self::DIMENSION{
             if inner_y != y{
-                let index = inner_y*Self::DIMENSION + x;
-                let square = self.0.get(index as usize).unwrap();
+                let index: u8 = inner_y*Self::DIMENSION + x;
+                let square: &u8 = self.0.get(index as usize).unwrap();
                 res.push(square)
             }
         }
@@ -263,7 +235,7 @@ impl Sudoku
     fn box_except(&self, x: u8, y: u8) -> Vec<&u8> {
 
         let sqrt: u8 = Self::DIMENSION.isqrt();
-        let square_not_included_index = (y*Self::DIMENSION) + x;
+        let excluded_square_index: u8 = (y*Self::DIMENSION) + x;
 
         let (box_x, box_y) = self.box_containing(x, y);
         let (start_x, start_y) = (box_x*sqrt, box_y*sqrt);
@@ -272,7 +244,7 @@ impl Sudoku
 
         for i in start_y..(start_y+sqrt){
             for j in start_x..(start_x+sqrt){
-                if (i*Self::DIMENSION)+j != square_not_included_index{
+                if (i*Self::DIMENSION)+j != excluded_square_index{
                     res.push(self.get(j, i).unwrap())
                 }
             }
@@ -284,10 +256,11 @@ impl Sudoku
     //Does not look at the values contained in multiples - i.e. squares such as Option<u8>([1,3..]).
     fn values_not_in_subet_singles(subset: Vec<&u8>) -> Vec<u8> {
         Self::VALUES.iter()
-        .filter(
-            |value| !subset.iter().any(|square| **square == **value)
+        .filter_map(
+            |value|
+            if subset.iter().any(|square| **square == *value){ None }
+            else { Some(*value) }
         )
-        .map(|value| *value)
         .collect()
     }
 
@@ -305,26 +278,6 @@ impl Sudoku
     }
 
     pub fn is_solved(&self) -> bool{
-        /*
-        for column in self.columns(){
-            if !Self::subset_is_solved(column){
-                return false
-            }
-        }
-
-        for row in self.rows(){
-            if !Self::subset_is_solved(row){
-                return false
-            }
-        }
-
-        for box_ in self.boxes(){
-            if !Self::subset_is_solved(box_){
-                return false
-            }
-        }
-        true
-        */
 
         self.columns().iter()
         .all(|column| Self::subset_is_solved(column))&&
@@ -348,13 +301,15 @@ impl Sudoku
         let possible_values: Vec<u8> =
             Self::VALUES
             .iter()
-            .filter(
+            .filter_map(
                 |value|
-                values_not_in_box.contains(value) &&
-                values_not_in_row.contains(value) &&
-                values_not_in_column.contains(value)
+                
+                if values_not_in_box.contains(value) && values_not_in_row.contains(value) && values_not_in_column.contains(value) {
+                    Some(*value)
+                } else {
+                    None
+                }
             )
-            .map(|value| *value)
             .collect();
         
         possible_values
@@ -416,7 +371,8 @@ impl<'a> IntoIterator for &'a Sudoku{
     type IntoIter = std::slice::Iter<'a, u8>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.squares().into_iter()
+        let squares: &Vec<u8> = &self.0;
+        squares.into_iter()
     }
 }
 
