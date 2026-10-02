@@ -1,80 +1,96 @@
-//For the purpose of the app, don't need the sudoku to store the possible values.
-//Possible values only need to be visible to the user and don't
-
-use core::panic;
 use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
 use rand::{random_range, rng, seq::SliceRandom};
 
-//use crate::sudoku;
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Sudoku(Vec<u8>);
 
-impl Sudoku
-//TODO: remove debug trait bound - useful for now for dev.
-//Could require display if the intended function of the program is to print the result or write to a file => need a way to generate a text representation of sudoku contents.
-{   
-
+impl Sudoku {
+    //Side length of a 9x9 sudoku. Using a const so there aren't magic number 9s everywhere   
     const DIMENSION: u8 = 9;
+    //Alias for the values 1..=9
     const VALUES: [u8; 9] = [1,2,3,4,5,6,7,8,9];
 
-
-    pub fn from(values: impl IntoIterator<Item = u8>) -> Sudoku{
-        values.into_iter().collect()
+    //
+    fn new_zeroed() -> Sudoku{
+        (0..(Self::DIMENSION*Self::DIMENSION))
+        .map(|_| 0)
+        .collect()
     }
 
-    pub fn new_zeroed() -> Sudoku{
-        let squares: Vec<u8> = (0..(Self::DIMENSION*Self::DIMENSION)).into_iter().map(|_| 0).collect();
-        Sudoku(squares)
-    }
-
-    pub fn squares(&self) -> &Vec<u8>{
+    //Return ref to underlying data of the sudoku
+    fn squares(&self) -> &Vec<u8>{
         &self.0
     }
 
-    fn insert(&mut self, index: usize, value: u8) -> (){
+    //Modify the value at a given index in place
+    //Panic is index is out of bounds
+    fn replace(&mut self, index: usize, value: u8) -> (){
+        if index >= (Self::DIMENSION*Self::DIMENSION) as usize{
+            let max_index = (Self::DIMENSION*Self::DIMENSION) -1;
+            panic!("Called \'replace\' with index {} but maximum allowed index is {}", index, max_index);
+        }
+        //Can't use .squares() as this provides only an immutable reference
         self.0[index] = value;
     }
 
     pub fn gen_solved_new_random() -> Sudoku{
+        //Initialise with all 0's
         let mut sudoku = Sudoku::new_zeroed();
+        //First row is a random shuffle of VALUES. All permutations are allowed
         let mut first_row: Vec<u8> = Self::VALUES.to_vec();
         first_row.shuffle(&mut rng());
 
+        //Adding first row to sudoku
         for (index, value) in first_row.iter().enumerate(){
-            sudoku.insert(index, *value);
+            sudoku.replace(index, *value);
         }
 
-        for i in 1..9{
-            let index = 9*i;
-            let mut possible_values: Vec<u8> = sudoku.possible_values(index);
-            possible_values.shuffle(&mut rng());
-            let value = possible_values[0];
-            sudoku.insert(index, value);
+        //Generating random first column using .possible_values() ot ensure only
+        //values leading to a solvable puzzle are selected
+        for i in 1..(Self::DIMENSION as usize){
+            //Index of the first square of each row beginning from the second row
+            //First row is already filled
+            let index: usize = 9*i;
+            let possible_values: Vec<u8> = sudoku.possible_values(index);
+            
+            //Select random index to take one of the possible_values
+            //possible_values is sorted into numerical order, so need to pick a random value
+            //so the resultant puzzles are actually random
+            let random_index: usize = random_range(0..possible_values.len());
+            let value: u8 = possible_values[random_index];
+            sudoku.replace(index, value);
         }
-
+        
+        //Filling first row and column gives enough information to solve the whole thing
         sudoku.solve();
         sudoku
 
     }
 
     pub fn puzzle_from_solved_sudoku(&mut self, difficulty: &str) -> Sudoku{
-        let amount_to_remove_from_grid: usize;
+        let amount_to_remove_sudoku_from_grid: usize;
 
+        //Removing values from the solved sudoku to generate the puzzle
         match difficulty{
-            "easy" => amount_to_remove_from_grid = 2,
-            "medium" => amount_to_remove_from_grid = random_range(40..50),
-            "hard" => amount_to_remove_from_grid = random_range(51..60),
+            "easy" => amount_to_remove_sudoku_from_grid = random_range(31..40),
+            "medium" => amount_to_remove_sudoku_from_grid = random_range(41..50),
+            "hard" => amount_to_remove_sudoku_from_grid = random_range(51..60),
             _ => panic!("Unknown difficulty: {}", difficulty)
         }
 
-        let mut indices_to_remove: Vec<u8> =
-            (0..(Self::DIMENSION*Self::DIMENSION)).into_iter().collect();
+        //Generating random set of indices to be removed based on the difficult
+        let mut all_indices: Vec<u8> =
+            (0..(Self::DIMENSION*Self::DIMENSION))
+            .collect();
             
-        indices_to_remove.shuffle(&mut rng());
-        indices_to_remove = indices_to_remove[0..amount_to_remove_from_grid].to_vec();
+        all_indices.shuffle(&mut rng());
+        let indices_to_remove: Vec<u8> = all_indices[0..amount_to_remove_sudoku_from_grid].to_vec();
 
+        //Iterate through the whole sudoku and set the values of at indices_to_remove to 0
+        //No dedicated empty state for the squares to 0 is used instead
+        //Considered using Option<u8> to have an empty state (i.e. None) for the squares
+        //but found there wasn't much benefit compared to just using u8's
         self.0.iter_mut()
         .enumerate()
         .map(
@@ -90,37 +106,38 @@ impl Sudoku
 
     }
 
+    //Retrieve the value of a given square based on x,y coordinates in the grid.
     fn get(&self, x: u8, y: u8) -> Option<&u8>{
 
         if (x > Self::DIMENSION) || (y > Self::DIMENSION) {
             None
         } else {
             let square_index = (y*Self::DIMENSION) + x;
-            self.0.get(square_index as usize)
+            self.squares().get(square_index as usize)
         }
     }
 
     //Returns a list of the 9 columns making up the sudoku.
     //top to bottom
     fn columns(&self) -> Vec<Vec<&u8>>{
-        let dim: u8 = Self::DIMENSION;
         let mut res: Vec<Vec<&u8>> = Vec::new();
 
-        let mut x_offset = 0;
+        let mut x_offset: u8 = 0;
 
-        while x_offset < dim{
+        //Outer loop incrementing x coord
+        while x_offset < Self::DIMENSION{
             let mut temp: Vec<&u8> = Vec::new();
             let mut y_offset = 0;
 
-            while y_offset < dim{
-                let index: u8 = (dim*y_offset) + x_offset;
-                let square: &u8 = self.0.get(index as usize).unwrap();
+            //Inner loop incrementing y coord
+            while y_offset < Self::DIMENSION{
+                let index: u8 = (Self::DIMENSION*y_offset) + x_offset;
+                let square: &u8 = self.squares().get(index as usize).unwrap();
                 temp.push(square);
                 y_offset += 1;
             }
             res.push(temp);
             x_offset += 1;
-
         }
         res
     }
@@ -130,18 +147,17 @@ impl Sudoku
     fn rows(&self) -> Vec<Vec<&u8>>{
         let mut res: Vec<Vec<&u8>> = Vec::new();
 
-        let squares: &Vec<u8> = &self.0;
-        let dim: u8 = Self::DIMENSION;
-
         let mut x_count: u8 = 0;
         let mut y_count: u8 = 0;
 
-        while y_count < dim{
+        //Outer loop incrementing y coord
+        while y_count < Self::DIMENSION{
             let mut temp: Vec<&u8> = Vec::new();
 
-            while x_count < dim{
-                let index: u8 = (y_count*dim) + x_count;
-                let square: &u8 = squares.get(index as usize).unwrap();
+            //Inner loop incrementing x coord
+            while x_count < Self::DIMENSION{
+                let index: u8 = (y_count*Self::DIMENSION) + x_count;
+                let square: &u8 = self.squares().get(index as usize).unwrap();
                 temp.push(square);
                 x_count += 1;
             }
@@ -153,27 +169,26 @@ impl Sudoku
         res
     }
     
-    //Returns a list of the 9 boxes making up the sudoku.
+    //Returns a list of the 9 3x3 boxes making up the sudoku.
     //left to right, top to bottom
     fn boxes(&self) -> Vec<Vec<&u8>>{
         let mut res: Vec<Vec<&u8>> = Vec::new();
 
-        let mut x_count = 0;
-        let mut y_count = 0;
-        let dim = Self::DIMENSION;
-        let sqrt = dim.isqrt();
-        let squares = &self.0;
+        let mut x_count: u8 = 0;
+        let mut y_count: u8 = 0;
+        let sqrt: u8 = Self::DIMENSION.isqrt();
 
-        while y_count < dim{
-            while x_count < dim{
+        while y_count < Self::DIMENSION{
+            while x_count < Self::DIMENSION{
                 let mut temp: Vec<&u8> = Vec::new();
-                let mut inner_x = x_count;
-                let mut inner_y = y_count;
+                let mut inner_x: u8 = x_count;
+                let mut inner_y: u8 = y_count;
 
+                
                 while inner_y < (y_count + sqrt){
                     while inner_x < (x_count + sqrt){
-                        let index = (inner_y*dim) + inner_x;
-                        let square = squares.get(index as usize).unwrap();
+                        let index: u8 = (inner_y*Self::DIMENSION) + inner_x;
+                        let square: &u8 = self.squares().get(index as usize).unwrap();
                         temp.push(square);
                         inner_x += 1;
                     }
@@ -191,16 +206,14 @@ impl Sudoku
 
     fn box_containing(&self, x: u8, y: u8) -> (u8, u8) {
 
-        let dim = Self::DIMENSION;
+        if x > Self::DIMENSION{
+            panic!("x coordinate outside possible bounds.\nx coordinate: {}\ncoordinate range 1-{}", x, Self::DIMENSION)
 
-        if x > dim{
-            panic!("x coordinate outside possible bounds.\nx coordinate: {}\ncoordinate range 1-{}", x, dim)
-
-        } else if y > dim{
-            panic!("y coordinate outside possible bounds.\ny coordinate: {}\ncoordinate range 1-{}", y, dim)
+        } else if y > Self::DIMENSION{
+            panic!("y coordinate outside possible bounds.\ny coordinate: {}\ncoordinate range 1-{}", y, Self::DIMENSION)
 
         } else {
-            let sqrt: u8 = dim.isqrt();
+            let sqrt: u8 = Self::DIMENSION.isqrt();
             ((x/sqrt), y/sqrt)
         }
 
@@ -212,7 +225,7 @@ impl Sudoku
         for inner_y in 0..Self::DIMENSION{
             if inner_y != y{
                 let index: u8 = inner_y*Self::DIMENSION + x;
-                let square: &u8 = self.0.get(index as usize).unwrap();
+                let square: &u8 = self.squares().get(index as usize).unwrap();
                 res.push(square)
             }
         }
@@ -225,7 +238,7 @@ impl Sudoku
         for inner_x in 0..Self::DIMENSION{
             if inner_x != x{
                 let index = y*Self::DIMENSION + inner_x;
-                let square = self.0.get(index as usize).unwrap();
+                let square = self.squares().get(index as usize).unwrap();
                 res.push(square);
             }
         }
@@ -264,6 +277,9 @@ impl Sudoku
         .collect()
     }
 
+    //squares is a row, column or box
+    //Checks if each number (1..=9) appears exactly once in the given subset
+    //Return false otherwise
     fn subset_is_solved(squares: &Vec<&u8>) -> bool{
         Self::VALUES
         .iter()
@@ -272,8 +288,7 @@ impl Sudoku
             squares
             .iter()
             .filter(|square| ***square == *value)
-            .collect::<Vec<&&u8>>()
-            .len() == 1
+            .count() == 1
         )
     }
 
@@ -330,12 +345,12 @@ impl Sudoku
             let possible_values: Vec<u8> = sudoku.possible_values(index);
             
             for value in possible_values{
-                sudoku.0[index] = value;
+                sudoku.replace(index, value);
 
                 if inner(sudoku, index+1){
                     return true
                 } else {
-                    sudoku.0[index] = 0;
+                    sudoku.replace(index, 0);
                 }
             }
             false
@@ -351,7 +366,7 @@ impl std::fmt::Display for Sudoku
         let dim: usize = Self::DIMENSION as usize;
         let mut count: usize = 1;
 
-        for square in self.0.iter(){
+        for square in self.squares(){
             let mut temp: String = String::new();
             temp.push_str(format!("{:?}", square).as_str());
             if count == (dim){
@@ -371,13 +386,12 @@ impl<'a> IntoIterator for &'a Sudoku{
     type IntoIter = std::slice::Iter<'a, u8>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let squares: &Vec<u8> = &self.0;
-        squares.into_iter()
+        self.squares().into_iter()
     }
 }
 
 impl FromIterator<u8> for Sudoku{
-    //Useful to create a sudoku from an iterator of Vec<u8>
+    //Useful to create a sudoku sudoku_from an iterator of Vec<u8>
     //e.g. after mapping and such
     //Panics if the number of elements in the iterator != 81.
     fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
@@ -389,13 +403,12 @@ impl FromIterator<u8> for Sudoku{
         if squares.len() != (Self::DIMENSION*Self::DIMENSION) as usize{
             //Using panic if the wrong numbers of elements is present.
             //This is not somthing the user can control
-            panic!("Cannot construct a Sudoku from collect with {} elements\nExactly {} elements required for Sudoku due to 9x9 Self::DIMENSION", squares.len(), Self::DIMENSION*Self::DIMENSION)
+            panic!("Cannot construct a Sudoku sudoku_from collect with {} elements\nExactly {} elements required for Sudoku due to 9x9 Self::DIMENSION", squares.len(), Self::DIMENSION*Self::DIMENSION)
         }
         
         Sudoku(squares)
     }
 }
-
 
 #[cfg(test)]
 mod test{
@@ -405,10 +418,10 @@ use super::*;
     //Function used for testing "gen_new_random".
     //Need to ensure that puzzle it produces is indeed solvable
     fn is_solvable(sudoku: &Sudoku) -> bool{
-        for i in 0..sudoku.0.len(){
-            if sudoku.0[i] != 0 {
+        for i in 0..sudoku.squares().len(){
+            if sudoku.squares()[i] != 0 {
                 let (x, y) = (i as u8%Sudoku::DIMENSION, i as u8/Sudoku::DIMENSION);
-                let square: &u8 = &sudoku.0[i];
+                let square: &u8 = &sudoku.squares()[i];
                 let groups: Vec<Vec<&u8>> = vec![sudoku.box_except(x, y), sudoku.row_except(x, y), sudoku.column_except(x, y)];
                 let square_in_any_group: bool =
                 groups.iter()
@@ -421,6 +434,13 @@ use super::*;
         true
     }
 
+    //Helper to convert impl IntoIterator into a Sudoku
+    fn sudoku_from(values: impl IntoIterator<Item = u8>) -> Sudoku{
+        //FromIterator implemented for Sudoku
+        values.into_iter().collect()
+    }
+
+    //Puzzle which is definitely solvable
     const PUZZLE: [u8; (Sudoku::DIMENSION*Sudoku::DIMENSION) as usize] =
         [
             3,0,0,0,4,0,0,0,0,
@@ -434,6 +454,7 @@ use super::*;
             0,0,0,0,2,8,0,0,0
         ];
     
+    //Solution to puzzle
     const SOLUTION: [u8; 81] =
         [
             3,1,6,5,4,9,8,2,7,
@@ -447,6 +468,7 @@ use super::*;
             1,6,5,9,2,8,3,7,4,
         ];
     
+    //Incorrect solution to PUZZLE used to verify an incorrect solution can be detected
     const INCORRECT_SOLTUION: [u8; 81] =
         [
             3,1,6,5,4,9,8,2,7,
@@ -463,11 +485,11 @@ use super::*;
     #[test]
     fn is_solved(){
 
-        let puzzle: Sudoku = Sudoku::from(PUZZLE);
+        let puzzle: Sudoku = PUZZLE.into_iter().collect();
 
-        let solution: Sudoku = Sudoku::from(SOLUTION);
+        let solution: Sudoku = SOLUTION.into_iter().collect();
 
-        let incorrect_solution = Sudoku::from(INCORRECT_SOLTUION);
+        let incorrect_solution: Sudoku = INCORRECT_SOLTUION.into_iter().collect();
         
         assert!(!(puzzle.is_solved()));
         assert!(solution.is_solved());
@@ -497,9 +519,9 @@ use super::*;
     #[test]
     fn solve(){
         
-        let mut sudoku: Sudoku = Sudoku::from(PUZZLE);
+        let mut sudoku: Sudoku = sudoku_from(PUZZLE);
 
-        let solution: Sudoku = Sudoku::from(SOLUTION);
+        let solution: Sudoku = sudoku_from(SOLUTION);
 
         sudoku.solve();
 
@@ -510,7 +532,7 @@ use super::*;
 
     #[test]
     fn values_not_in_subet(){
-        let sudoku: Sudoku = Sudoku::from(PUZZLE);
+        let sudoku: Sudoku = sudoku_from(PUZZLE);
 
         let (x, y) = (1, 0);
 
@@ -522,7 +544,7 @@ use super::*;
     #[test]
     fn possibles(){
 
-        let sudoku = Sudoku::from(PUZZLE);
+        let sudoku = sudoku_from(PUZZLE);
 
         let (x, y) = (2, 1);
         let index = x + (y*Sudoku::DIMENSION);

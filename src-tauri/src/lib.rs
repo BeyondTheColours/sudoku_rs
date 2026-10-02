@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 
+//TODO enum for the different difficulties instead of using strings
 pub mod sudoku;
 use sudoku::Sudoku;
 
